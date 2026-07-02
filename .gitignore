@@ -1,0 +1,4 @@
+go.mod
+.env
+remoteServer.exe
+remoteServer

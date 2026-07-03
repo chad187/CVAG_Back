@@ -19,7 +19,7 @@ jobs:
 
       - name: Build Binary
         run: |
-          GOOS=linux GOARCH=arm64 go build -o remoteServer .
+          GOOS=linux GOARCH=amd64 go build -o remoteServer .
 
       # 1. Prepare Environment (Stop service and remove old binary)
       - name: Prepare Environment

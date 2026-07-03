@@ -1,4 +1,4 @@
-go.mod
 .env
 remoteServer.exe
+.github/workflows/secrets.txt
 remoteServer

@@ -1,0 +1,53 @@
+name: CI/CD Pipeline (Backend)
+
+on:
+  push:
+    branches: [ test, prod ]
+  pull_request:
+    branches: [ test, prod ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build Binary
+        run: |
+          GOOS=linux GOARCH=arm64 go build -o remoteServer .
+
+      # 1. Prepare Environment (Stop service and remove old binary)
+      - name: Prepare Environment
+        if: github.event_name == 'push'
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.KEY }}
+          script: ${{ github.ref_name == 'prod' && secrets.PROD_PRE_DEPLOY_SCRIPT || secrets.TEST_PRE_DEPLOY_SCRIPT }}
+
+      # 2. Deploy Binary
+      - name: Deploy Binary
+        if: github.event_name == 'push'
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.KEY }}
+          source: "remoteServer"
+          target: ${{ github.ref_name == 'prod' && secrets.PROD_TARGET || secrets.TEST_TARGET }}
+
+      # 3. Finalize Deployment (Ensure executable + Restart)
+      - name: Finalize & Restart
+        if: github.event_name == 'push'
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.KEY }}
+          script: ${{ github.ref_name == 'prod' && secrets.PROD_POST_DEPLOY_SCRIPT || secrets.TEST_POST_DEPLOY_SCRIPT }}

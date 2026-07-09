@@ -371,6 +371,14 @@ func deleteUpdate(c *gin.Context) {
 		return
 	}
 
+	if result.AlreadyQueued {
+		c.JSON(http.StatusGone, gin.H{
+			"error":  "deleted queued update",
+			"reason": "Updated deleted but it might be too late to stop.",
+		})
+		return
+	}
+
 	// 3. Handle specific results
 	if result.Cancelled {
 		c.JSON(http.StatusOK, gin.H{"message": "Pending update successfully cancelled"})
@@ -382,21 +390,14 @@ func deleteUpdate(c *gin.Context) {
 		return
 	}
 
-	if result.AlreadyQueued {
-		c.JSON(http.StatusConflict, gin.H{
-			"error":  "Cannot delete update",
-			"reason": "Update is already queued on the local gateway and may have been transmitted.",
-		})
-		return
-	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Pending update successfully cancelled"})
 }
 
 func checkAndHandleFirmware(c *gin.Context, current Node, compositeID CompositeID) {
 	// 1. SUCCESS: Mark as completed if the version now matches
+	// Only applies if we were expecting an update (QUEUED)
 	res, _ := database.Collection("updates").UpdateOne(c,
-		bson.M{"_id": current.ID, "version": current.Version, "update_status": KEY_QUEUED},
+		bson.M{"_id": current.ID, "update_status": KEY_QUEUED, "version": current.Version},
 		bson.M{"$set": bson.M{"update_status": KEY_COMPLETED}},
 	)
 
@@ -405,40 +406,33 @@ func checkAndHandleFirmware(c *gin.Context, current Node, compositeID CompositeI
 		return
 	}
 
-	// 2. MISS/STALL: If still queued but version hasn't changed, heartbeat happened
-	// but update didn't. Just bump the predicted time for the dashboard.
-	interval := GetPredictedInterval(c, current)
-	nextWindow := current.UpdatedAt.Add(interval)
-
-	//a queued may not exist
-	database.Collection("updates").UpdateOne(c,
-		bson.M{"_id": current.ID, "update_status": KEY_QUEUED},
-		bson.M{"$set": bson.M{"update_at": nextWindow}},
-	)
-	//pending means that only the remote server has it
-	//queued means that the remote server has sent the update to the local server and is waiting for the node to report back with the new version in the heartbeat to mark it as completed
-	//completed means that the node has reported back with the new version and the update is done
-
-	// 3. PENDING: Check for brand new updates
-	//if you find a queued and then a pending then just overwrite the old queued with the new pending and update the time. This means that the remote server has sent a new update while the old one was still pending, so we just replace it with the new one and reset the timer.
+	// 2. FETCH PENDING OR QUEUED:
+	// We search for EITHER status. If either exists, we send the update instruction.
 	var update FirmwareUpdate
 	err := database.Collection("updates").FindOne(c, bson.M{
 		"_id":           current.ID,
-		"update_status": KEY_PENDING,
+		"update_status": bson.M{"$in": []string{KEY_PENDING, KEY_QUEUED}},
 	}).Decode(&update)
 
 	if err == nil {
+		// Special case: Battery Reset
 		if update.UpdateURL == "battery_reset" {
 			database.Collection("updates").DeleteOne(c, bson.M{"_id": update.NodeID, "update_status": KEY_PENDING})
-		} else {
-			database.Collection("updates").UpdateOne(c,
-				bson.M{"_id": update.NodeID},
-				bson.M{"$set": bson.M{
-					"update_status": KEY_QUEUED,
-					"update_at":     nextWindow, // Ensure pending moves to queued with a fresh time
-				}},
-			)
+			c.JSON(http.StatusOK, gin.H{"has_update": false, "status": "battery_reset_executed"})
+			return
 		}
+
+		// Standard update: Ensure status is QUEUED and update time
+		interval := GetPredictedInterval(c, current)
+		nextWindow := current.UpdatedAt.Add(interval)
+
+		database.Collection("updates").UpdateOne(c,
+			bson.M{"_id": update.NodeID},
+			bson.M{"$set": bson.M{
+				"update_status": KEY_QUEUED,
+				"update_at":     nextWindow,
+			}},
+		)
 
 		c.JSON(http.StatusOK, gin.H{
 			"has_update": true,
@@ -450,6 +444,7 @@ func checkAndHandleFirmware(c *gin.Context, current Node, compositeID CompositeI
 		return
 	}
 
+	// 3. DEFAULT: No updates pending or queued
 	c.JSON(http.StatusOK, gin.H{"has_update": false, "status": "recorded"})
 }
 

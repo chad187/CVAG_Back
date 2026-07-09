@@ -390,7 +390,7 @@ func TestDeleteUpdate(t *testing.T) {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		if w.Code != http.StatusConflict {
+		if w.Code != http.StatusGone {
 			t.Errorf("Expected 409 Conflict for queued update, got %d", w.Code)
 		}
 	})

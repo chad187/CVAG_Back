@@ -168,7 +168,7 @@ func setupRouter() *gin.Engine {
 		api.PUT("/nodes/:id/details", updateNodeDetails)
 
 		// DELETE /update/:id
-		// Summary: Cancel a pending firmware update for a node.
+		// Summary: Cancel a pending or queued firmware update for a node.
 		// Path param: id (node ID)
 		// Header: Authorization: Bearer <token>
 		// Responses: 200 success, 401/403 unauthorized, 404 not found, 409 conflict.

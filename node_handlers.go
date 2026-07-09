@@ -418,21 +418,20 @@ func checkAndHandleFirmware(c *gin.Context, current Node, compositeID CompositeI
 		// Special case: Battery Reset
 		if update.UpdateURL == "battery_reset" {
 			database.Collection("updates").DeleteOne(c, bson.M{"_id": update.NodeID, "update_status": KEY_PENDING})
-			c.JSON(http.StatusOK, gin.H{"has_update": false, "status": "battery_reset_executed"})
-			return
+		} else {
+
+			// Standard update: Ensure status is QUEUED and update time
+			interval := GetPredictedInterval(c, current)
+			nextWindow := current.UpdatedAt.Add(interval)
+
+			database.Collection("updates").UpdateOne(c,
+				bson.M{"_id": update.NodeID},
+				bson.M{"$set": bson.M{
+					"update_status": KEY_QUEUED,
+					"update_at":     nextWindow,
+				}},
+			)
 		}
-
-		// Standard update: Ensure status is QUEUED and update time
-		interval := GetPredictedInterval(c, current)
-		nextWindow := current.UpdatedAt.Add(interval)
-
-		database.Collection("updates").UpdateOne(c,
-			bson.M{"_id": update.NodeID},
-			bson.M{"$set": bson.M{
-				"update_status": KEY_QUEUED,
-				"update_at":     nextWindow,
-			}},
-		)
 
 		c.JSON(http.StatusOK, gin.H{
 			"has_update": true,

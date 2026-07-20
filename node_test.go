@@ -164,8 +164,9 @@ func TestGetNode(t *testing.T) {
 	// Verify the History (pushed from Heartbeat 1)
 	if len(summary.History) == 0 {
 		t.Errorf("Expected at least one history record, got 0")
-	} else if summary.History[0].Temp != 70.0 {
-		t.Errorf("History record temp mismatch. Expected 70.0, got %v", summary.History[0].Temp)
+		//now that we push the latest on to history then the first true history is on index 1
+	} else if summary.History[1].Temp != 70.0 {
+		t.Errorf("History record temp mismatch. Expected 70.0, got %v", summary.History[1].Temp)
 	}
 }
 
@@ -391,7 +392,7 @@ func TestDeleteUpdate(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		if w.Code != http.StatusGone {
-			t.Errorf("Expected 409 Conflict for queued update, got %d", w.Code)
+			t.Errorf("Expected 410 Gone for queued update, got %d", w.Code)
 		}
 	})
 

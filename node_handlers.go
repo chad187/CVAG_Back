@@ -81,12 +81,26 @@ func GetNodeSummary(ctx context.Context, nodeID string) (NodeSummary, error) {
 		return summary, err
 	}
 
+	first := HistoryRecord{
+		NodeID:    summary.Node.ID,
+		Temp:      summary.Node.Temp,
+		Timestamp: summary.Node.UpdatedAt,
+	}
+
+	summary.History = []HistoryRecord{first}
+
 	// 2. Fetch recent history (Last 100 entries)
 	opts := options.Find().SetSort(bson.M{"timestamp": -1}).SetLimit(100) //this might have to be extented to get more history for the graph
 	cursor, err := database.Collection("history").Find(ctx, bson.M{"node_id": nodeID}, opts)
 	if err == nil {
 		defer cursor.Close(ctx)
-		cursor.All(ctx, &summary.History)
+
+		// Create a temporary slice to hold the database results
+		var newEntries []HistoryRecord
+		if err := cursor.All(ctx, &newEntries); err == nil {
+			// Prepend the new entries to the existing list
+			summary.History = append(summary.History, newEntries...)
+		}
 	}
 
 	// 3. Check for pending/queued updates

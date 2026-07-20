@@ -81,7 +81,7 @@ func CreateFirmwareUpdate(ctx context.Context, nodeID string, update FirmwareUpd
 	return update, nil
 }
 
-// CancelPendingUpdate attempts to cancel a pending firmware update
+// CancelPendingUpdate attempts to cancel a pending or queued firmware update
 func CancelPendingUpdate(ctx context.Context, nodeID string) (CancelUpdateResult, error) {
 	// 1. Try to delete pending update
 	result, err := database.Collection("updates").DeleteOne(ctx, bson.M{
@@ -99,21 +99,22 @@ func CancelPendingUpdate(ctx context.Context, nodeID string) (CancelUpdateResult
 	}
 
 	// 3. Check if update exists in another state
-	var existing FirmwareUpdate
-	err = database.Collection("updates").FindOne(ctx, bson.M{"_id": nodeID}).Decode(&existing)
+	result, err = database.Collection("updates").DeleteOne(ctx, bson.M{
+		"_id":           nodeID,
+		"update_status": KEY_QUEUED,
+	})
 
 	if err != nil {
-		// No update found at all
-		return CancelUpdateResult{NotFound: true}, nil
+		return CancelUpdateResult{}, err
 	}
 
 	// 4. Update exists but not in pending state
-	if existing.UpdateStatus == KEY_QUEUED {
-		return CancelUpdateResult{AlreadyQueued: true}, nil
+	if result.DeletedCount > 0 {
+		return CancelUpdateResult{Cancelled: true, AlreadyQueued: true}, nil
 	}
 
 	// 5. Update exists in some other state (shouldn't happen normally)
-	return CancelUpdateResult{}, nil
+	return CancelUpdateResult{NotFound: true}, nil
 }
 
 // ProcessHeartbeat handles the full heartbeat processing logic

@@ -8,15 +8,21 @@ import (
 )
 
 type Node struct {
-	ID           string    `json:"id" bson:"_id"`
-	Name         string    `json:"name" bson:"name"`
-	Temp         float64   `json:"temp" bson:"temp"`
-	Status       string    `json:"status" bson:"status"` // OK, OFFLINE, OVERHEATING, LOW_BATTERY
-	Version      string    `json:"version" bson:"version"`
-	Battery      float64   `json:"battery" bson:"battery"`
-	Warning_temp int       `json:"warning_temp" bson:"warning_temp"`
-	CreatedAt    time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" bson:"updated_at"`
+	ID           string      `json:"id" bson:"_id"`
+	Name         string      `json:"name" bson:"name"`
+	Temp         float64     `json:"temp" bson:"temp"`
+	Status       string      `json:"status" bson:"status"` // OK, OFFLINE, OVERHEATING, LOW_BATTERY
+	Version      string      `json:"version" bson:"version"`
+	Battery      float64     `json:"battery" bson:"battery"`
+	Warning_temp int         `json:"warning_temp" bson:"warning_temp"`
+	Location     Coordinates `json:"location" bson:"location"`
+	CreatedAt    time.Time   `json:"created_at" bson:"created_at"`
+	UpdatedAt    time.Time   `json:"updated_at" bson:"updated_at"`
+}
+
+type Coordinates struct {
+	Lat float64 `json:"lat" bson:"lat"`
+	Lng float64 `json:"lng" bson:"lng"`
 }
 
 type NodeSummary struct {

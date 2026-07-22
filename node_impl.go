@@ -160,6 +160,12 @@ func ProcessHeartbeat(ctx context.Context, payload HeartbeatPayload, compositeID
 			{Key: "warning_temp", Value: bson.D{
 				{Key: "$ifNull", Value: bson.A{"$warning_temp", KEY_WARNING_TEMP}},
 			}},
+			{Key: "location", Value: bson.D{
+				{Key: "$ifNull", Value: bson.A{"$location", bson.D{
+					{Key: "lat", Value: 0.0},
+					{Key: "lng", Value: 0.0},
+				}}},
+			}},
 		}}},
 
 		// STAGE 2: Calculate status based on the values written in Stage 1
@@ -216,6 +222,7 @@ func EditNodeDetails(ctx context.Context, nodeID string, input Node) error {
 		"$set": bson.M{
 			"name":         input.Name,
 			"warning_temp": input.Warning_temp,
+			"location":     input.Location,
 			"updated_at":   time.Now(),
 		},
 	}

@@ -306,7 +306,7 @@ func handleMetrics(c *gin.Context) {
 		return
 	}
 
-	incoming.UpdatedAt = time.Now()
+	incoming.UpdatedAt = time.Now().UTC()
 
 	// 3. Database operation
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -467,8 +467,8 @@ func ensureHierarchyExists(ctx context.Context, idparts CompositeID) {
 		bson.M{"_id": idparts.CompanyID},
 		bson.M{"$setOnInsert": Company{
 			ID:        idparts.CompanyID,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
 		}},
 		options.UpdateOne().SetUpsert(true),
 	)
@@ -479,8 +479,8 @@ func ensureHierarchyExists(ctx context.Context, idparts CompositeID) {
 		bson.M{"_id": yardID},
 		bson.M{"$setOnInsert": Yard{
 			ID:        yardID,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
 		}},
 		options.UpdateOne().SetUpsert(true),
 	)

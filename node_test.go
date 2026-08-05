@@ -113,7 +113,7 @@ func TestHandleHeartbeatLifecycle(t *testing.T) {
 func TestGetNode(t *testing.T) {
 	router := setupRouter()
 
-	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 1, time.Now())
+	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestGetNode(t *testing.T) {
 func TestGetNodes(t *testing.T) {
 	router := setupRouter()
 
-	_, userIDs, _, yardIDs, _, err := setupTest(t, 2, 2, 2, 0, time.Now())
+	_, userIDs, _, yardIDs, _, err := setupTest(t, 2, 2, 2, 0, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestGetNodes(t *testing.T) {
 func TestQueueUpdateSecurity(t *testing.T) {
 	router := setupRouter()
 
-	_, userIDs, _, _, nodeIDs, err := setupTest(t, 2, 1, 1, 1, time.Now())
+	_, userIDs, _, _, nodeIDs, err := setupTest(t, 2, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestDeleteUpdate(t *testing.T) {
 	// Setup 2 users, 1 company each, 1 yard each, 1 node each
 	// userIDs[0] owns nodeIDs[0]
 	// userIDs[1] owns nodeIDs[1]
-	_, userIDs, _, _, nodeIDs, err := setupTest(t, 2, 1, 1, 1, time.Now())
+	_, userIDs, _, _, nodeIDs, err := setupTest(t, 2, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestDeleteUpdate(t *testing.T) {
 
 func TestGetNodesHelper(t *testing.T) {
 	// Setup: 1 Company, 2 Yards, 3 Nodes per yard
-	_, _, _, yardIDs, _, err := setupTest(t, 1, 1, 2, 3, time.Now())
+	_, _, _, yardIDs, _, err := setupTest(t, 1, 1, 2, 3, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestUpdateNodeDetails(t *testing.T) {
 	router := setupRouter()
 	ctx := context.TODO()
 
-	_, userIDs, _, _, nodeIDs, err := setupTest(t, 2, 1, 1, 1, time.Now())
+	_, userIDs, _, _, nodeIDs, err := setupTest(t, 2, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -507,7 +507,7 @@ func TestQueueBatchUpdates(t *testing.T) {
 	router := setupRouter()
 
 	// Seed your test data using your existing harness setup helper
-	_, userIDs, _, _, nodeIDs, err := setupTest(t, 2, 1, 1, 1, time.Now())
+	_, userIDs, _, _, nodeIDs, err := setupTest(t, 2, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestDeliverRawFirmwareBinaryOnly(t *testing.T) {
 	router := setupRouter()
 	ctx := context.TODO()
 
-	_, _, _, _, nodeIDs, err := setupTest(t, 1, 1, 1, 1, time.Now())
+	_, _, _, _, nodeIDs, err := setupTest(t, 1, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -674,7 +674,7 @@ func TestGetMetrics(t *testing.T) {
 	router := setupRouter()
 
 	// 1. SETUP
-	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 1, time.Now())
+	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}

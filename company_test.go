@@ -8,7 +8,7 @@ import (
 
 func TestGetCompaniesHelper(t *testing.T) {
 	// Setup: 1 User, 3 Companies total
-	_, userID, companyIDs, _, _, err := setupTest(t, 2, 3, 1, 1, time.Now())
+	_, userID, companyIDs, _, _, err := setupTest(t, 2, 3, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}

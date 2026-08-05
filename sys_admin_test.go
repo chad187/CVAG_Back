@@ -19,7 +19,7 @@ func TestGetCompaniesAdmin(t *testing.T) {
 
 	// Setup: Create a normal user and a SysAdmin
 	// Assuming setupTest allows setting specific flags or manual DB injection
-	sysAdminID, userIDs, _, _, _, _ := setupTest(t, 2, 1, 1, 1, time.Now())
+	sysAdminID, userIDs, _, _, _, _ := setupTest(t, 2, 1, 1, 1, time.Now().UTC())
 
 	normalUser := userIDs[0]
 
@@ -52,7 +52,7 @@ func TestGetYardsAdmin(t *testing.T) {
 	router := setupRouter()
 
 	// Setup matches company assertions framework exactly
-	sysAdminID, userIDs, _, _, _, _ := setupTest(t, 2, 1, 1, 1, time.Now())
+	sysAdminID, userIDs, _, _, _, _ := setupTest(t, 2, 1, 1, 1, time.Now().UTC())
 	normalUser := userIDs[0]
 
 	t.Run("Normal user is REJECTED", func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestGetYardsAdmin(t *testing.T) {
 func TestGetNodesAdmin(t *testing.T) {
 	router := setupRouter()
 
-	sysAdminID, userIDs, _, _, _, _ := setupTest(t, 2, 1, 1, 1, time.Now())
+	sysAdminID, userIDs, _, _, _, _ := setupTest(t, 2, 1, 1, 1, time.Now().UTC())
 	normalUser := userIDs[0]
 
 	t.Run("Normal user is REJECTED", func(t *testing.T) {
@@ -115,7 +115,7 @@ func TestGetUsersAdminExclusion(t *testing.T) {
 	router := setupRouter()
 
 	// Setup 2 users
-	adminUser, userIDs, _, _, _, err := setupTest(t, 5, 1, 1, 1, time.Now())
+	adminUser, userIDs, _, _, _, err := setupTest(t, 5, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestGetSingleUserAdmin(t *testing.T) {
 	router := setupRouter()
 
 	// Setup users
-	adminUser, userIDs, _, _, _, err := setupTest(t, 2, 1, 1, 1, time.Now())
+	adminUser, userIDs, _, _, _, err := setupTest(t, 2, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestEditUserAdmin(t *testing.T) {
 	ctx := context.TODO()
 
 	// Setup: 2 users
-	adminUser, userIDs, _, _, _, err := setupTest(t, 2, 1, 1, 1, time.Now())
+	adminUser, userIDs, _, _, _, err := setupTest(t, 2, 1, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -294,6 +294,77 @@ func TestEditUserAdmin(t *testing.T) {
 
 		if w.Code != http.StatusForbidden {
 			t.Errorf("Expected 403 Forbidden, got %d", w.Code)
+		}
+	})
+}
+
+func TestDeleteUserAdmin(t *testing.T) {
+	router := setupRouter()
+	ctx := context.TODO()
+
+	// Setup: 3 users
+	adminUser, userIDs, _, _, _, err := setupTest(t, 3, 1, 1, 1, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Setup failed: %v", err)
+	}
+
+	targetUser := userIDs[0]
+
+	t.Run("SysAdmin can delete a user", func(t *testing.T) {
+		url := "/api/admin/user/" + targetUser.Hex()
+		req, _ := http.NewRequest("DELETE", url, nil)
+		req.Header.Set("Authorization", getAuthHeader(adminUser))
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", w.Code)
+		}
+
+		// Verify user is deleted from DB
+		var deletedUser User
+		err := database.Collection("users").FindOne(ctx, bson.M{"_id": targetUser}).Decode(&deletedUser)
+
+		if err == nil {
+			t.Error("User should have been deleted but still exists in DB")
+		}
+	})
+
+	t.Run("Rejects non-admin delete attempts", func(t *testing.T) {
+		otherUser := userIDs[1]
+
+		url := "/api/admin/user/" + otherUser.Hex()
+		req, _ := http.NewRequest("DELETE", url, nil)
+		req.Header.Set("Authorization", getAuthHeader(otherUser)) // Normal user trying to delete
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden, got %d", w.Code)
+		}
+
+		// Verify user still exists
+		var user User
+		err := database.Collection("users").FindOne(ctx, bson.M{"_id": otherUser}).Decode(&user)
+
+		if err != nil {
+			t.Error("User should still exist in DB after failed delete attempt")
+		}
+	})
+
+	t.Run("Returns 404 for non-existent user", func(t *testing.T) {
+		fakeID := primitive.NewObjectID().Hex()
+		url := "/api/admin/user/" + fakeID
+		req, _ := http.NewRequest("DELETE", url, nil)
+		req.Header.Set("Authorization", getAuthHeader(adminUser))
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("Expected 404 Not Found, got %d", w.Code)
 		}
 	})
 }

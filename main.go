@@ -61,7 +61,7 @@ func setupRouter() *gin.Engine {
 
 	// --- LOGGING MIDDLEWARE ---
 	r.Use(func(c *gin.Context) {
-		startTime := time.Now()
+		startTime := time.Now().UTC()
 		method := c.Request.Method
 		path := c.Request.RequestURI
 
@@ -189,6 +189,58 @@ func setupRouter() *gin.Engine {
 		// Body: FirmwareUpdate payload
 		// Responses: 200 update accepted, 401/403 unauthorized, 400 invalid payload, 404 not found.
 		api.POST("/updates", queueBatchUpdates)
+
+		// GET /yard/:id/alert
+		// Summary: Return alert control metadata and current user details.
+		// Header: Authorization: Bearer <token>
+		// Responses: 200 AlertPayload, 401 unauthorized.
+		api.GET("/yard/:id/alert", getAlert)
+
+		// POST /yard/:id/alert
+		// Summary: Accept Alert message payload.
+		// Header: Authorization: Bearer <token>
+		// Body: { message, last_run, cool_down, test_email, test_phone, run_history }
+		// Responses: 200 success, 401/403 unauthorized.
+		api.POST("/yard/:id/alert", postAlert)
+
+		// PUT /yard/:id/alert/user
+		// Summary: Accept user payload.
+		// Header: Authorization: Bearer <token>
+		// Body: { name, email, phone, language }
+		// Responses: 200 success, 401/403 unauthorized.
+		api.PUT("/yard/:id/alert/user", addUserAlert)
+
+		// DELETE /yard/:id/alert/user
+		// Summary: delete user payload.
+		// Header: Authorization: Bearer <token>
+		// Body: { email }
+		// Responses: 200 success, 401/403 unauthorized.
+		api.DELETE("/yard/:id/alert/user", deleteUserAlert)
+
+		// DELETE /yard/:id/alert/history
+		// Summary: delete Alert history.
+		// Header: Authorization: Bearer <token>
+		// Body: { date }
+		// Responses: 200 success, 401/403 unauthorized.
+		api.DELETE("/yard/:id/alert/history/:date", deleteAlertHistory)
+
+		// POST /yard/:id/alert/broadcast
+		// Summary: Broadcast alert message to all users in the yard.
+		// Header: Authorization: Bearer <token>
+		// Responses: 200 success, 401/403 unauthorized.
+		api.POST("/yard/:id/alert/broadcast", broadcastAlert)
+
+		// POST /yard/:id/alert/testAll
+		// Summary: Broadcast alert message to the test recipients.
+		// Header: Authorization: Bearer <token>
+		// Responses: 200 success, 401/403 unauthorized.
+		api.POST("/yard/:id/alert/testAll", testAlertAll)
+
+		// POST /yard/:id/alert/testOne
+		// Summary: Broadcast alert message to the test recipients.
+		// Header: Authorization: Bearer <token>
+		// Responses: 200 success, 401/403 unauthorized.
+		api.POST("/yard/:id/alert/testOne", testAlertOne)
 
 		// POST /heartbeat
 		// Summary: Process node heartbeat data from remote/local gateway.

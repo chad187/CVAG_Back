@@ -270,13 +270,13 @@ func findOrCreateSocialUser(ctx context.Context, provider, providerID, email, na
 			"email":      email,
 			"name":       name,
 			"picture":    picture,
-			"last_login": time.Now(),
+			"last_login": time.Now().UTC(),
 		},
 		"$setOnInsert": bson.M{
 			"_id":         newID,
 			"provider":    provider,
 			"provider_id": providerID,
-			"created_at":  time.Now(),
+			"created_at":  time.Now().UTC(),
 			"company_ids": []string{}, // Initializes as a clean, empty string slice
 			"sys_admin":   false,
 		},
@@ -303,8 +303,8 @@ func createJWT(user User) (string, error) {
 		Email:  user.Email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID.Hex(),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(defaultJWTExpiry)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(defaultJWTExpiry)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
 			Issuer:    "remote-server",
 		},
 	}
@@ -389,8 +389,8 @@ func getDevUser(c *gin.Context) (User, error) {
 		Name:       "Dev User",
 		Provider:   "dev",
 		ProviderID: "dev",
-		CreatedAt:  time.Now(),
-		LastLogin:  time.Now(),
+		CreatedAt:  time.Now().UTC(),
+		LastLogin:  time.Now().UTC(),
 	}, nil
 }
 

@@ -110,6 +110,44 @@ type CompanySummary struct {
 	HasBadStatus bool   `json:"has_bad_status"`
 }
 
+type AlertRunHistory struct {
+	Date    time.Time `json:"date" bson:"date"`
+	Message string    `json:"message" bson:"message"`
+}
+
+type AlertUserDetails struct {
+	Name     string `json:"name" bson:"name"`
+	Email    string `json:"email" bson:"email"`
+	Phone    string `json:"phone" bson:"phone"`
+	Language string `json:"language" bson:"language"`
+}
+
+type AlertMessages struct {
+	Language string `json:"language" bson:"language"`
+	Message  string `json:"message" bson:"message"`
+}
+
+type AlertDetails struct {
+	YardID     string             `json:"yard_id" bson:"yard_id"`
+	Messages   []AlertMessages    `json:"messages" bson:"messages"`
+	LastRun    time.Time          `json:"last_run" bson:"last_run"`
+	CoolDown   time.Duration      `json:"cool_down" bson:"cool_down"`
+	TestEmail  string             `json:"test_email" bson:"test_email"`
+	TestPhone  string             `json:"test_phone" bson:"test_phone"`
+	RunHistory []AlertRunHistory  `json:"run_history" bson:"run_history"`
+	Users      []AlertUserDetails `json:"users" bson:"users"`
+	CreatedAt  time.Time          `json:"created_at" bson:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at" bson:"updated_at"`
+}
+
+type AlertPostPayload struct {
+	Message   string        `json:"message" bson:"message"`
+	LastRun   int64         `json:"last_run" bson:"last_run"`
+	CoolDown  time.Duration `json:"cool_down" bson:"cool_down"`
+	TestEmail string        `json:"test_email" bson:"test_email"`
+	TestPhone string        `json:"test_phone" bson:"test_phone"`
+}
+
 type socialProfile struct {
 	Email             string `json:"email"`
 	Name              string `json:"name"`
@@ -129,4 +167,11 @@ type CancelUpdateResult struct {
 	Cancelled     bool
 	NotFound      bool
 	AlreadyQueued bool
+}
+
+type MyMemoryResponse struct {
+	ResponseData struct {
+		TranslatedText string `json:"translatedText"`
+	} `json:"responseData"`
+	ResponseStatus int `json:"responseStatus"`
 }

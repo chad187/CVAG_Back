@@ -72,7 +72,7 @@ func TestSetupTest_PerUserScaling(t *testing.T) {
 	// 2 Users * 2 Companies * 3 Yards * 4 Nodes
 	u, c, y, n := 2, 2, 3, 4
 
-	_, userIDs, companyIDs, yardIDs, nodeIDs, err := setupTest(t, u, c, y, n, time.Now())
+	_, userIDs, companyIDs, yardIDs, nodeIDs, err := setupTest(t, u, c, y, n, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("setup failed: %v", err)
 	}

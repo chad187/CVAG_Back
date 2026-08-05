@@ -13,7 +13,7 @@ import (
 )
 
 func TestGetYards_AccessControl(t *testing.T) {
-	_, userIDs, companyIDs, _, _, err := setupTest(t, 2, 2, 1, 1, time.Now())
+	_, userIDs, companyIDs, _, _, err := setupTest(t, 2, 2, 1, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestGetYards_AccessControl(t *testing.T) {
 
 func TestGetYardsHelper(t *testing.T) {
 	// Setup: 2 Companies, 2 Yards per company
-	_, _, companyIDs, _, _, err := setupTest(t, 1, 2, 2, 1, time.Now())
+	_, _, companyIDs, _, _, err := setupTest(t, 1, 2, 2, 1, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestGetYardsHelper(t *testing.T) {
 
 func TestGetYardSummaries(t *testing.T) {
 	// Setup: 1 Company, 2 Yards, 3 Nodes per yard
-	_, _, companyIDs, yardIDs, nodeIDs, err := setupTest(t, 1, 1, 2, 3, time.Now())
+	_, _, companyIDs, yardIDs, nodeIDs, err := setupTest(t, 1, 1, 2, 3, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}

@@ -70,7 +70,7 @@ func CreateFirmwareUpdate(ctx context.Context, nodeID string, update FirmwareUpd
 	interval := GetPredictedInterval(ctx, node)
 	update.NodeID = nodeID
 	update.UpdateStatus = KEY_PENDING
-	update.CreatedAt = time.Now()
+	update.CreatedAt = time.Now().UTC()
 	update.UpdateAt = node.UpdatedAt.Add(interval)
 
 	// 3. Save to database
@@ -223,7 +223,7 @@ func EditNodeDetails(ctx context.Context, nodeID string, input Node) error {
 			"name":         input.Name,
 			"warning_temp": input.Warning_temp,
 			"location":     input.Location,
-			"updated_at":   time.Now(),
+			"updated_at":   time.Now().UTC(),
 		},
 	}
 
@@ -284,7 +284,7 @@ func getAllNodeSummaries(ctx context.Context) ([]Node, error) {
 
 // ApplyLivenessStatus performs both in-memory updates and the DB save
 func ApplyLivenessStatus(ctx context.Context, nodes *[]Node) {
-	threshold := time.Now().Add(-24 * time.Hour)
+	threshold := time.Now().UTC().Add(-24 * time.Hour)
 	var staleIDs []string
 
 	for i := range *nodes {

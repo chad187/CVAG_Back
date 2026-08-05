@@ -222,7 +222,7 @@ func setupRouter() *gin.Engine {
 		// Header: Authorization: Bearer <token>
 		// Body: { date }
 		// Responses: 200 success, 401/403 unauthorized.
-		api.DELETE("/yard/:id/alert/history", deleteAlertHistory)
+		api.DELETE("/yard/:id/alert/history/:date", deleteAlertHistory)
 
 		// POST /yard/:id/alert/broadcast
 		// Summary: Broadcast alert message to all users in the yard.

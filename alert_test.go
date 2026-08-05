@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -99,8 +100,8 @@ func TestGetAlertDetails_NotFoundAndCreated(t *testing.T) {
 	if alert.YardID != yardID {
 		t.Errorf("Expected YardID %s, got %s", yardID, alert.YardID)
 	}
-	if alert.CoolDown != 5 {
-		t.Errorf("Expected default CoolDown to be 5, got %d", alert.CoolDown)
+	if alert.CoolDown != 300000000000 {
+		t.Errorf("Expected default CoolDown to be 300000000000, got %d", alert.CoolDown)
 	}
 
 	// 5. Verify the document was successfully inserted into MongoDB
@@ -301,45 +302,73 @@ func TestAddUserAlert(t *testing.T) {
 	// ==========================================
 	// Test Case 2: Attempt to add a user with a duplicate email
 	// ==========================================
-	dupEmailPayload := AlertUserDetails{
-		Name:     "Duplicate Email Test",
-		Email:    "initial@example.com", // Conflicts with seeded user
-		Phone:    "555-2222",
+	updateEmailPayload := AlertUserDetails{
+		Name:     "Updated Initial User Name",
+		Email:    "initial@example.com", // Matches seeded user
+		Phone:    "555-0000",
 		Language: "English",
 	}
 
-	dupEmailBody, _ := json.Marshal(dupEmailPayload)
-	reqDupEmail, _ := http.NewRequest("PUT", "/api/yard/"+yardID+"/alert/user", bytes.NewBuffer(dupEmailBody))
-	reqDupEmail.Header.Set("Authorization", "Bearer "+token)
-	reqDupEmail.Header.Set("Content-Type", "application/json")
+	updateEmailBody, _ := json.Marshal(updateEmailPayload)
+	reqUpdateEmail, _ := http.NewRequest("PUT", "/api/yard/"+yardID+"/alert/user", bytes.NewBuffer(updateEmailBody))
+	reqUpdateEmail.Header.Set("Authorization", "Bearer "+token)
+	reqUpdateEmail.Header.Set("Content-Type", "application/json")
 
-	wDupEmail := httptest.NewRecorder()
-	router.ServeHTTP(wDupEmail, reqDupEmail)
+	wUpdateEmail := httptest.NewRecorder()
+	router.ServeHTTP(wUpdateEmail, reqUpdateEmail)
 
-	if wDupEmail.Code != http.StatusBadRequest {
-		t.Errorf("Expected status 400 for duplicate email, got %d. Body: %s", wDupEmail.Code, wDupEmail.Body.String())
+	if wUpdateEmail.Code != http.StatusOK {
+		t.Errorf("Expected status 200 on email upsert, got %d. Body: %s", wUpdateEmail.Code, wUpdateEmail.Body.String())
+	}
+
+	// Verify database record updated the name and kept total user count at 1
+	var updatedAlertEmail AlertDetails
+	err = database.Collection("alerts").FindOne(t.Context(), bson.M{"yard_id": yardID}).Decode(&updatedAlertEmail)
+	if err != nil {
+		t.Fatalf("Failed to query updated alert from database: %v", err)
+	}
+
+	if len(updatedAlertEmail.Users) != 2 {
+		t.Errorf("Expected 2 users in database after upsert, got %d", len(updatedAlertEmail.Users))
+	}
+	if updatedAlertEmail.Users[0].Name != "Updated Initial User Name" {
+		t.Errorf("Expected user name to be updated, got %s", updatedAlertEmail.Users[0].Name)
 	}
 
 	// ==========================================
-	// Test Case 3: Attempt to add a user with a duplicate phone number
+	// Test Case 3: Update existing user by matching phone (Upsert)
 	// ==========================================
-	dupPhonePayload := AlertUserDetails{
-		Name:     "Duplicate Phone Test",
-		Email:    "unique@example.com",
-		Phone:    "555-0000", // Conflicts with seeded user
+	updatePhonePayload := AlertUserDetails{
+		Name:     "Updated By Phone Name",
+		Email:    "unique-new@example.com",
+		Phone:    "555-0000", // Matches seeded user's phone
 		Language: "English",
 	}
 
-	dupPhoneBody, _ := json.Marshal(dupPhonePayload)
-	reqDupPhone, _ := http.NewRequest("PUT", "/api/yard/"+yardID+"/alert/user", bytes.NewBuffer(dupPhoneBody))
-	reqDupPhone.Header.Set("Authorization", "Bearer "+token)
-	reqDupPhone.Header.Set("Content-Type", "application/json")
+	updatePhoneBody, _ := json.Marshal(updatePhonePayload)
+	reqUpdatePhone, _ := http.NewRequest("PUT", "/api/yard/"+yardID+"/alert/user", bytes.NewBuffer(updatePhoneBody))
+	reqUpdatePhone.Header.Set("Authorization", "Bearer "+token)
+	reqUpdatePhone.Header.Set("Content-Type", "application/json")
 
-	wDupPhone := httptest.NewRecorder()
-	router.ServeHTTP(wDupPhone, reqDupPhone)
+	wUpdatePhone := httptest.NewRecorder()
+	router.ServeHTTP(wUpdatePhone, reqUpdatePhone)
 
-	if wDupPhone.Code != http.StatusBadRequest {
-		t.Errorf("Expected status 400 for duplicate phone, got %d. Body: %s", wDupPhone.Code, wDupPhone.Body.String())
+	if wUpdatePhone.Code != http.StatusOK {
+		t.Errorf("Expected status 200 on phone upsert, got %d. Body: %s", wUpdatePhone.Code, wUpdatePhone.Body.String())
+	}
+
+	// Verify database record replaced the user properly via phone match
+	var updatedAlertPhone AlertDetails
+	err = database.Collection("alerts").FindOne(t.Context(), bson.M{"yard_id": yardID}).Decode(&updatedAlertPhone)
+	if err != nil {
+		t.Fatalf("Failed to query updated alert from database: %v", err)
+	}
+
+	if len(updatedAlertPhone.Users) != 2 {
+		t.Errorf("Expected 2 users in database after phone upsert, got %d", len(updatedAlertPhone.Users))
+	}
+	if updatedAlertPhone.Users[0].Name != "Updated By Phone Name" {
+		t.Errorf("Expected user name to be updated, got %s", updatedAlertPhone.Users[0].Name)
 	}
 }
 
@@ -443,6 +472,9 @@ func TestDeleteAlertHistory(t *testing.T) {
 	yardID := yardIDs[0]
 	targetDate := time.Date(2026, 7, 27, 10, 0, 0, 0, time.UTC)
 
+	// Convert targetDate to millisecond timestamp matching frontend behavior
+	targetMillis := targetDate.UnixNano() / int64(time.Millisecond)
+
 	// 2. Seed initial alert details with a run history entry to delete
 	seededAlert := AlertDetails{
 		YardID:   yardID,
@@ -468,20 +500,10 @@ func TestDeleteAlertHistory(t *testing.T) {
 	token := generateTestToken(userIDs[0].Hex())
 
 	// ==========================================
-	// Test Case 1: Successfully delete a run history entry by date
+	// Test Case 1: Successfully delete a run history entry by date path parameter
 	// ==========================================
-	payload := map[string]time.Time{
-		"date": targetDate,
-	}
-
-	jsonBody, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("Failed to marshal payload: %v", err)
-	}
-
-	req, _ := http.NewRequest("DELETE", "/api/yard/"+yardID+"/alert/history", bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("DELETE", "/api/yard/"+yardID+"/alert/history/"+fmt.Sprintf("%d", targetMillis), nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

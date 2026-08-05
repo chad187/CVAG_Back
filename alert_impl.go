@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -196,14 +197,7 @@ func getLanguageCode(langName string) (string, error) {
 	mapping := map[string]string{
 		"english":    "en",
 		"spanish":    "es",
-		"mandarin":   "zh",
-		"tagalog":    "tl",
-		"vietnamese": "vi",
-		"arabic":     "ar",
-		"french":     "fr",
-		"korean":     "ko",
 		"portuguese": "pt",
-		"russian":    "ru",
 	}
 
 	normalized := strings.ToLower(strings.TrimSpace(langName))
@@ -357,13 +351,14 @@ func deleteUserAlertImpl(c *gin.Context, yardId string) (err error) {
 }
 
 func deleteAlertHistoryImpl(c *gin.Context, yardId string) (err error) {
-	var payload struct {
-		Date time.Time `json:"date"`
-	}
+	dateStr := c.Param("date")
 
-	if err = c.ShouldBindJSON(&payload); err != nil {
-		return fmt.Errorf("failed to bind JSON: %w", err)
+	// Parse the incoming millisecond timestamp string into a time.Time object
+	millis, err := strconv.ParseInt(dateStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid history date format: %w", err)
 	}
+	targetDate := time.Unix(0, millis*int64(time.Millisecond)).UTC()
 
 	alert, err := getAlertImpl(c, yardId)
 	if err != nil {
@@ -373,12 +368,12 @@ func deleteAlertHistoryImpl(c *gin.Context, yardId string) (err error) {
 	// Filter out the run history entries that match the specified date
 	var updatedHistory []AlertRunHistory
 	for _, entry := range alert.RunHistory {
-		if !entry.Date.Equal(payload.Date) {
+		// Using Unix milli comparison is safer than .Equal() to avoid tiny timezone/sub-millisecond mismatches
+		if entry.Date.UnixMilli() != targetDate.UnixMilli() {
 			updatedHistory = append(updatedHistory, entry)
 		}
 	}
 	alert.RunHistory = updatedHistory
-
 	alert.UpdatedAt = time.Now().UTC()
 
 	// Persist the updated run history back to MongoDB
@@ -395,7 +390,7 @@ func deleteAlertHistoryImpl(c *gin.Context, yardId string) (err error) {
 		return fmt.Errorf("failed to update alert history in database: %w", err)
 	}
 
-	return
+	return nil
 }
 
 func broadcastAlertImpl(c *gin.Context, yardId string, testing bool) (remaining float64, err error) {

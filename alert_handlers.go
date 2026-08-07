@@ -131,10 +131,20 @@ func deleteAlertHistory(c *gin.Context) {
 func broadcastAlert(c *gin.Context) {
 	yardID := c.Param("id")
 
-	// Check if the request is coming from an IoT device using query or form parameters with a password
-	devicePassword := c.Query("password")
+	var devicePassword string
+
+	// 1. Check query parameter first (fallback)
+	devicePassword = c.Query("password")
+
+	// 2. If empty, try parsing the JSON body
 	if devicePassword == "" {
-		devicePassword = c.PostForm("password")
+		var jsonBody struct {
+			Password string `json:"password"`
+		}
+		// Bind JSON without strict required error handling so it fails gracefully if empty
+		if err := c.ShouldBindJSON(&jsonBody); err == nil {
+			devicePassword = jsonBody.Password
+		}
 	}
 
 	if devicePassword != "" {
@@ -144,16 +154,11 @@ func broadcastAlert(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API password"})
 			return
 		}
-		// Optional: Verify if the IoT device's associated node matches the yardID if needed
 	} else {
 		// Frontend User Authentication Path (JWT / Bearer Token)
 		allowed, err := CanAccessNode(c, yardID)
-		if err != nil {
+		if err != nil || !allowed {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-			return
-		}
-		if !allowed {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to this node"})
 			return
 		}
 	}
@@ -161,7 +166,6 @@ func broadcastAlert(c *gin.Context) {
 	// Execute standard broadcast implementation
 	remaining, err := broadcastAlertImpl(c, yardID, false)
 	if err != nil {
-		// check if it has the words "rate limit"
 		if strings.Contains(err.Error(), "rate limit") {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"status":            "error",
@@ -183,7 +187,13 @@ func testAlertOne(c *gin.Context) {
 
 	devicePassword := c.Query("password")
 	if devicePassword == "" {
-		devicePassword = c.PostForm("password")
+		var jsonBody struct {
+			Password string `json:"password"`
+		}
+		// Bind JSON without strict required error handling so it fails gracefully if empty
+		if err := c.ShouldBindJSON(&jsonBody); err == nil {
+			devicePassword = jsonBody.Password
+		}
 	}
 
 	if devicePassword != "" {
@@ -221,8 +231,15 @@ func testAlertAll(c *gin.Context) {
 	yardID := c.Param("id")
 
 	devicePassword := c.Query("password")
+
 	if devicePassword == "" {
-		devicePassword = c.PostForm("password")
+		var jsonBody struct {
+			Password string `json:"password"`
+		}
+		// Bind JSON without strict required error handling so it fails gracefully if empty
+		if err := c.ShouldBindJSON(&jsonBody); err == nil {
+			devicePassword = jsonBody.Password
+		}
 	}
 
 	if devicePassword != "" {

@@ -208,7 +208,7 @@ func setupRouter() *gin.Engine {
 		// Header: Authorization: Bearer <token>
 		// Body: { name, email, phone, language }
 		// Responses: 200 success, 401/403 unauthorized.
-		api.PUT("/yard/:id/alert/user", addUserAlert)
+		api.PUT("/yard/:id/alert/user", editUserAlert)
 
 		// DELETE /yard/:id/alert/user
 		// Summary: delete user payload.

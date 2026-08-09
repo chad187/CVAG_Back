@@ -209,7 +209,7 @@ func getLanguageCode(langName string) (string, error) {
 	return code, nil
 }
 
-func addUserAlertImpl(c *gin.Context, yardId string) (err error) {
+func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
 
 	var newUser AlertUserDetails
 	if err = c.ShouldBindJSON(&newUser); err != nil {

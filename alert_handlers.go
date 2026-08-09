@@ -56,28 +56,34 @@ func postAlert(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Alert details updated successfully"})
 }
 
-func addUserAlert(c *gin.Context) {
+func editUserAlert(c *gin.Context) {
 
 	yardID := c.Param("id")
 
-	// 1. Security Check
-	allowed, err := CanAccessNode(c, yardID)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
+	// 1. Check password from query parameter
+	devicePassword := c.Query("password")
+	if devicePassword != "" {
+		expectedPassword := os.Getenv("API_PASSWORD")
+		if devicePassword != expectedPassword {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API password"})
+			return
+		}
+	} else {
+		// Frontend User Authentication Path (JWT / Bearer Token)
+		allowed, err := CanAccessNode(c, yardID)
+		if err != nil || !allowed {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 	}
-	if !allowed {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to this node"})
+
+	err := editUserAlertImpl(c, yardID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to edit user alert details:" + err.Error()})
 		return
 	}
 
-	err = addUserAlertImpl(c, yardID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to add user alert details:" + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "User alert details added successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "User alert details edited successfully"})
 }
 
 func deleteUserAlert(c *gin.Context) {

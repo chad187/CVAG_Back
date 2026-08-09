@@ -210,7 +210,6 @@ func getLanguageCode(langName string) (string, error) {
 }
 
 func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
-
 	var newUser AlertUserDetails
 	if err = c.ShouldBindJSON(&newUser); err != nil {
 		return fmt.Errorf("failed to bind JSON: %w", err)
@@ -222,22 +221,17 @@ func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
 		return fmt.Errorf("failed to retrieve alert details: %w", err)
 	}
 
-	// Safely copy existing users to a new slice so we don't mutate in-memory state prematurely
+	// Safely copy existing users to a new slice
 	updatedUsers := make([]AlertUserDetails, len(alert.Users))
 	copy(updatedUsers, alert.Users)
 
 	found := false
 	for i, existing := range updatedUsers {
-		// Check if either email or phone matches an existing user record
-		matchByEmail := newUser.Email != "" && existing.Email == newUser.Email
+		matchByEmail := newUser.Email != "" && newUser.Email != "noEmail" && existing.Email == newUser.Email
 		matchByPhone := newUser.Phone != "" && existing.Phone == newUser.Phone
 
 		if matchByEmail || matchByPhone {
-			// Preserve language preference if not provided in the new payload
-			if newUser.Language == "" {
-				newUser.Language = existing.Language
-			}
-
+			// Overwrite directly with whatever language came in
 			updatedUsers[i] = newUser
 			found = true
 			break
@@ -252,9 +246,9 @@ func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
 	// Assign back to our alert struct
 	alert.Users = updatedUsers
 
-	// 4. Check if the user's language needs a new translation added to messages
+	// 3. Check if the user's language needs a new translation added to messages
 	normalizedLang := strings.ToLower(strings.TrimSpace(newUser.Language))
-	if normalizedLang != "english" && len(alert.Messages) > 0 {
+	if normalizedLang != "english" && normalizedLang != "" {
 		langAlreadyTranslated := false
 		for _, msg := range alert.Messages {
 			if strings.EqualFold(msg.Language, newUser.Language) {
@@ -265,6 +259,10 @@ func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
 
 		// If this language isn't translated yet, translate the primary (English) message
 		if !langAlreadyTranslated {
+			if len(alert.Messages) == 0 {
+				return fmt.Errorf("cannot translate: baseline English message does not exist in alert.Messages")
+			}
+
 			primaryMessage := alert.Messages[0].Message
 			translatedText, err := translateMessage(primaryMessage, newUser.Language)
 			if err != nil {
@@ -278,7 +276,7 @@ func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
 		}
 	}
 
-	// 5. Persist the updated users and messages back to MongoDB
+	// 4. Persist the updated users and messages back to MongoDB
 	alert.UpdatedAt = time.Now().UTC()
 	update := bson.M{
 		"$set": bson.M{
@@ -294,7 +292,7 @@ func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
 		return fmt.Errorf("failed to save new user to database: %w", err)
 	}
 
-	return
+	return nil
 }
 
 func deleteUserAlertImpl(c *gin.Context, yardId string) (err error) {

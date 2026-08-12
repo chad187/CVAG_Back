@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -62,20 +63,25 @@ func postAlertImpl(c *gin.Context, yardId string) (err error) {
 		return
 	}
 
+	// Default to keeping the existing messages (preserving all translations)
 	alert := AlertDetails{
-		Messages: []AlertMessages{{
-			Language: "English",
-			Message:  payload.Message,
-		}},
+		Messages: oldAlert.Messages,
 	}
 
-	if len(oldAlert.Messages) > 0 && oldAlert.Messages[0].Message != payload.Message {
-		messages, err := getMessageTranslations(oldAlert.Users, payload.Message)
-		if err != nil {
-			return err
-		}
+	// Only reset and re-translate if the main English message text actually changed
+	if len(oldAlert.Messages) == 0 || oldAlert.Messages[0].Message != payload.Message {
+		alert.Messages = []AlertMessages{{
+			Language: "English",
+			Message:  payload.Message,
+		}}
 
-		alert.Messages = append(alert.Messages, messages...)
+		if len(oldAlert.Users) > 0 {
+			messages, err := getMessageTranslations(oldAlert.Users, payload.Message)
+			if err != nil {
+				return err
+			}
+			alert.Messages = append(alert.Messages, messages...)
+		}
 	}
 
 	alert.LastRun = time.Unix(payload.LastRun, 0).UTC()
@@ -89,28 +95,37 @@ func postAlertImpl(c *gin.Context, yardId string) (err error) {
 
 	found := false
 	for i, u := range alert.Users {
-		// Check by phone (or email) to see if this user already exists
-		if u.Phone == payload.TestPhone {
-			// Replace with the updated details
-			alert.Users[i] = AlertUserDetails{
-				Name:     "Test User", // Or keep the existing name if you have it stored
+		if normalizeAlertPhone(u.Phone) == normalizeAlertPhone(payload.TestPhone) || normalizeAlertEmail(u.Email) == normalizeAlertEmail(payload.TestEmail) {
+			name := u.Name
+			if name == "" {
+				name = "Test User"
+			}
+			candidate := AlertUserDetails{
+				Name:     name,
 				Email:    payload.TestEmail,
 				Phone:    payload.TestPhone,
-				Language: u.Language, // Preserve existing language preference if set
+				Language: u.Language,
 			}
+			if err := ensureUniqueAlertUser(alert.Users, candidate, i); err != nil {
+				return err
+			}
+			alert.Users[i] = candidate
 			found = true
 			break
 		}
 	}
 
-	// If not found in the existing list, append them as a new entry
 	if !found {
-		alert.Users = append(alert.Users, AlertUserDetails{
+		candidate := AlertUserDetails{
 			Name:     "Test User",
 			Email:    payload.TestEmail,
 			Phone:    payload.TestPhone,
 			Language: "English",
-		})
+		}
+		if err := ensureUniqueAlertUser(alert.Users, candidate, -1); err != nil {
+			return err
+		}
+		alert.Users = append(alert.Users, candidate)
 	}
 
 	update := bson.M{
@@ -133,6 +148,47 @@ func postAlertImpl(c *gin.Context, yardId string) (err error) {
 	_, err = database.Collection("alerts").UpdateOne(c, filter, update, options.UpdateOne().SetUpsert(true))
 
 	return
+}
+
+var ErrDuplicateContact = errors.New("duplicate contact value")
+
+func normalizeAlertEmail(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func normalizeAlertPhone(value string) string {
+	cleaned := strings.TrimSpace(value)
+	var digits []rune
+	for _, r := range cleaned {
+		if unicode.IsDigit(r) || r == '+' {
+			digits = append(digits, unicode.ToLower(r))
+		}
+	}
+	return string(digits)
+}
+
+func isEmptyAlertContact(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return trimmed == "" || strings.EqualFold(trimmed, "noEmail") || strings.EqualFold(trimmed, "noPhone")
+}
+
+func ensureUniqueAlertUser(users []AlertUserDetails, candidate AlertUserDetails, ignoreIndex int) error {
+	candidateEmail := normalizeAlertEmail(candidate.Email)
+	candidatePhone := normalizeAlertPhone(candidate.Phone)
+
+	for i, existing := range users {
+		if i == ignoreIndex {
+			continue
+		}
+		if !isEmptyAlertContact(existing.Email) && candidateEmail != "" && normalizeAlertEmail(existing.Email) == candidateEmail {
+			return fmt.Errorf("%w: email %s is already in use", ErrDuplicateContact, candidate.Email)
+		}
+		if !isEmptyAlertContact(existing.Phone) && candidatePhone != "" && normalizeAlertPhone(existing.Phone) == candidatePhone {
+			return fmt.Errorf("%w: phone %s is already in use", ErrDuplicateContact, candidate.Phone)
+		}
+	}
+
+	return nil
 }
 
 func getMessageTranslations(users []AlertUserDetails, message string) ([]AlertMessages, error) {
@@ -215,7 +271,7 @@ func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
 		return fmt.Errorf("failed to bind JSON: %w", err)
 	}
 
-	// 1. Retrieve existing alert details (creates default record if none exists)
+	// 1. Retrieve existing alert details
 	alert, err := getAlertImpl(c, yardId)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve alert details: %w", err)
@@ -227,11 +283,13 @@ func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
 
 	found := false
 	for i, existing := range updatedUsers {
-		matchByEmail := newUser.Email != "" && newUser.Email != "noEmail" && existing.Email == newUser.Email
-		matchByPhone := newUser.Phone != "" && existing.Phone == newUser.Phone
+		matchByEmail := !isEmptyAlertContact(newUser.Email) && normalizeAlertEmail(existing.Email) == normalizeAlertEmail(newUser.Email)
+		matchByPhone := !isEmptyAlertContact(newUser.Phone) && normalizeAlertPhone(existing.Phone) == normalizeAlertPhone(newUser.Phone)
 
 		if matchByEmail || matchByPhone {
-			// Overwrite directly with whatever language came in
+			if err := ensureUniqueAlertUser(updatedUsers, newUser, i); err != nil {
+				return err
+			}
 			updatedUsers[i] = newUser
 			found = true
 			break
@@ -240,37 +298,53 @@ func editUserAlertImpl(c *gin.Context, yardId string) (err error) {
 
 	// 2. If no match was found, append as a new user
 	if !found {
+		if err := ensureUniqueAlertUser(updatedUsers, newUser, -1); err != nil {
+			return err
+		}
 		updatedUsers = append(updatedUsers, newUser)
 	}
 
 	// Assign back to our alert struct
 	alert.Users = updatedUsers
 
-	// 3. Check if the user's language needs a new translation added to messages
-	normalizedLang := strings.ToLower(strings.TrimSpace(newUser.Language))
-	if normalizedLang != "english" && normalizedLang != "" {
+	// 3. Ensure ALL unique languages used by ANY user have a corresponding translation message
+	if len(alert.Messages) == 0 {
+		return fmt.Errorf("cannot translate: baseline English message does not exist in alert.Messages")
+	}
+	primaryMessage := alert.Messages[0].Message
+
+	// Collect unique languages from all current users
+	activeLanguages := make(map[string]bool)
+	for _, u := range alert.Users {
+		lang := strings.TrimSpace(u.Language)
+		if lang != "" {
+			activeLanguages[lang] = true
+		}
+	}
+
+	// Check each active language against existing message translations
+	for lang := range activeLanguages {
+		if strings.EqualFold(lang, "english") {
+			continue // English baseline assumed present
+		}
+
 		langAlreadyTranslated := false
 		for _, msg := range alert.Messages {
-			if strings.EqualFold(msg.Language, newUser.Language) {
+			if strings.EqualFold(msg.Language, lang) {
 				langAlreadyTranslated = true
 				break
 			}
 		}
 
-		// If this language isn't translated yet, translate the primary (English) message
+		// If a user requires this language but it has no translation yet, translate it now
 		if !langAlreadyTranslated {
-			if len(alert.Messages) == 0 {
-				return fmt.Errorf("cannot translate: baseline English message does not exist in alert.Messages")
-			}
-
-			primaryMessage := alert.Messages[0].Message
-			translatedText, err := translateMessage(primaryMessage, newUser.Language)
+			translatedText, err := translateMessage(primaryMessage, lang)
 			if err != nil {
-				return fmt.Errorf("translation failed: %w", err)
+				return fmt.Errorf("translation failed for language %s: %w", lang, err)
 			}
 
 			alert.Messages = append(alert.Messages, AlertMessages{
-				Language: newUser.Language,
+				Language: lang,
 				Message:  translatedText,
 			})
 		}

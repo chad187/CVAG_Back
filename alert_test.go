@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -372,6 +373,166 @@ func TestAddUserAlert(t *testing.T) {
 	}
 }
 
+func TestAddUserAlert_Comprehensive(t *testing.T) {
+	// 1. Setup test environment
+	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 0, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
+
+	yardID := yardIDs[0]
+
+	// 2. Seed initial alert details with MULTIPLE users and messages
+	seededAlert := AlertDetails{
+		YardID:   yardID,
+		CoolDown: 5,
+		Messages: []AlertMessages{
+			{Language: "English", Message: "Plant shutdown warning"},
+			{Language: "Spanish", Message: "Advertencia de parada de planta"}, // Pre-translated
+		},
+		Users: []AlertUserDetails{
+			{
+				Name:     "User One",
+				Email:    "one@example.com",
+				Phone:    "555-0001",
+				Language: "English",
+			},
+			{
+				Name:     "User Two",
+				Email:    "two@example.com",
+				Phone:    "555-0002",
+				Language: "Spanish",
+			},
+		},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	_, err = database.Collection("alerts").InsertOne(t.Context(), seededAlert)
+	if err != nil {
+		t.Fatalf("Failed to seed alert: %v", err)
+	}
+
+	router := setupRouter()
+	token := generateTestToken(userIDs[0].Hex())
+
+	// ==========================================
+	// Test Case 1: Add a user with an ALREADY translated language (Should NOT trigger new translation)
+	// ==========================================
+	existingLangPayload := AlertUserDetails{
+		Name:     "User Three Spanish",
+		Email:    "three@example.com",
+		Phone:    "555-0003",
+		Language: "Spanish", // Already exists in alert.Messages
+	}
+
+	jsonBody, _ := json.Marshal(existingLangPayload)
+	req, _ := http.NewRequest("PUT", "/api/yard/"+yardID+"/alert/user", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var alertAfter1 AlertDetails
+	database.Collection("alerts").FindOne(t.Context(), bson.M{"yard_id": yardID}).Decode(&alertAfter1)
+
+	if len(alertAfter1.Users) != 3 {
+		t.Errorf("Expected 3 users, got %d", len(alertAfter1.Users))
+	}
+	// Messages count should still be 2 (English, Spanish) because Spanish was already there
+	if len(alertAfter1.Messages) != 2 {
+		t.Errorf("Expected messages length to remain 2, got %d", len(alertAfter1.Messages))
+	}
+
+	// ==========================================
+	// Test Case 2: Update an existing user mid-list by Email (Preserve total count)
+	// ==========================================
+	updateUserPayload := AlertUserDetails{
+		Name:     "User One Updated",
+		Email:    "one@example.com", // Matches User One
+		Phone:    "555-0001",
+		Language: "English",
+	}
+
+	updateBody, _ := json.Marshal(updateUserPayload)
+	reqUpdate, _ := http.NewRequest("PUT", "/api/yard/"+yardID+"/alert/user", bytes.NewBuffer(updateBody))
+	reqUpdate.Header.Set("Authorization", "Bearer "+token)
+	reqUpdate.Header.Set("Content-Type", "application/json")
+
+	wUpdate := httptest.NewRecorder()
+	router.ServeHTTP(wUpdate, reqUpdate)
+
+	if wUpdate.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 on update, got %d", wUpdate.Code)
+	}
+
+	var alertAfter2 AlertDetails
+	database.Collection("alerts").FindOne(t.Context(), bson.M{"yard_id": yardID}).Decode(&alertAfter2)
+
+	// Count should still be 3 (updated in place, not appended)
+	if len(alertAfter2.Users) != 3 {
+		t.Errorf("Expected user count to stay 3 after email upsert, got %d", len(alertAfter2.Users))
+	}
+
+	// Verify it was User One that got updated
+	foundUpdated := false
+	for _, u := range alertAfter2.Users {
+		if u.Email == "one@example.com" && u.Name == "User One Updated" {
+			foundUpdated = true
+		}
+	}
+	if !foundUpdated {
+		t.Errorf("Expected User One's name to be updated successfully")
+	}
+
+	// ==========================================
+	// Test Case 3: Add a user with a brand NEW language (Triggers translation)
+	// ==========================================
+	newLangPayload := AlertUserDetails{
+		Name:     "User Portuguese",
+		Email:    "portuguese@example.com",
+		Phone:    "555-0004",
+		Language: "Portuguese", // New language
+	}
+
+	portugueseBody, _ := json.Marshal(newLangPayload)
+	reqPortuguese, _ := http.NewRequest("PUT", "/api/yard/"+yardID+"/alert/user", bytes.NewBuffer(portugueseBody))
+	reqPortuguese.Header.Set("Authorization", "Bearer "+token)
+	reqPortuguese.Header.Set("Content-Type", "application/json")
+
+	wPortuguese := httptest.NewRecorder()
+	router.ServeHTTP(wPortuguese, reqPortuguese)
+
+	if wPortuguese.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 on new language add, got %d. Body: %s", wPortuguese.Code, wPortuguese.Body.String())
+	}
+
+	var alertAfter3 AlertDetails
+	database.Collection("alerts").FindOne(t.Context(), bson.M{"yard_id": yardID}).Decode(&alertAfter3)
+
+	if len(alertAfter3.Users) != 4 {
+		t.Errorf("Expected 4 users, got %d", len(alertAfter3.Users))
+	}
+
+	// Verify Portuguese message was appended
+	foundPortuguese := false
+	for _, msg := range alertAfter3.Messages {
+		if strings.EqualFold(msg.Language, "Portuguese") {
+			foundPortuguese = true
+			if msg.Message == "" {
+				t.Errorf("Expected translated Portuguese message content, got empty string")
+			}
+		}
+	}
+	if !foundPortuguese {
+		t.Errorf("Expected Portuguese translation to be added to Messages")
+	}
+}
+
 func TestDeleteUserAlert(t *testing.T) {
 	// 1. Setup test environment
 	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 0, time.Now().UTC())
@@ -521,6 +682,333 @@ func TestDeleteAlertHistory(t *testing.T) {
 
 	if len(updatedAlert.RunHistory) != 0 {
 		t.Errorf("Expected 0 run history entries in database after deletion, got %d", len(updatedAlert.RunHistory))
+	}
+}
+
+func TestPostAlert_ExistingTestPhoneUpdate(t *testing.T) {
+	// 1. Setup test environment
+	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 0, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
+
+	yardID := yardIDs[0]
+
+	// 2. Seed initial alert details with a user whose phone matches our upcoming payload test phone
+	seededAlert := AlertDetails{
+		YardID:   yardID,
+		CoolDown: 5,
+		Messages: []AlertMessages{
+			{Language: "English", Message: "Initial plant message"},
+		},
+		Users: []AlertUserDetails{
+			{
+				Name:     "Original Name",
+				Email:    "oldemail@example.com",
+				Phone:    "555-8888", // This phone number will be matched
+				Language: "Spanish",  // Should be preserved
+			},
+		},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	_, err = database.Collection("alerts").InsertOne(t.Context(), seededAlert)
+	if err != nil {
+		t.Fatalf("Failed to seed alert: %v", err)
+	}
+
+	router := setupRouter()
+	token := generateTestToken(userIDs[0].Hex())
+
+	// 3. Construct the payload using the matching phone number
+	payload := AlertPostPayload{
+		Message:   "Initial plant message", // Same message so it doesn't trigger translation logic
+		CoolDown:  10,
+		TestEmail: "updated-test@example.com",
+		TestPhone: "555-8888", // Matches existing user's phone
+		LastRun:   time.Now().Unix(),
+	}
+
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Failed to marshal payload: %v", err)
+	}
+
+	req, _ := http.NewRequest("POST", "/api/yard/"+yardID+"/alert", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 on post alert update, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// 4. Verify database record updated the user in-place instead of appending a new one
+	var updatedAlert AlertDetails
+	err = database.Collection("alerts").FindOne(t.Context(), bson.M{"yard_id": yardID}).Decode(&updatedAlert)
+	if err != nil {
+		t.Fatalf("Failed to query updated alert from database: %v", err)
+	}
+
+	// User count should still be 1 (updated, not appended)
+	if len(updatedAlert.Users) != 1 {
+		t.Errorf("Expected 1 user in database after phone match, got %d", len(updatedAlert.Users))
+	}
+
+	// Check that the email was updated, but the language ("Spanish") was successfully preserved
+	updatedUser := updatedAlert.Users[0]
+	if updatedUser.Email != "updated-test@example.com" {
+		t.Errorf("Expected test email to be updated, got %s", updatedUser.Email)
+	}
+	if updatedUser.Language != "Spanish" {
+		t.Errorf("Expected existing language preference 'Spanish' to be preserved, got %s", updatedUser.Language)
+	}
+}
+
+func TestEditUserAlert_Matrix(t *testing.T) {
+	// 1. Setup test environment
+	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 0, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
+
+	yardID := yardIDs[0]
+
+	// Seed with an initial user (English) and baseline messages
+	seededAlert := AlertDetails{
+		YardID:   yardID,
+		CoolDown: 5,
+		Messages: []AlertMessages{
+			{Language: "English", Message: "Warning: High temperature detected"},
+		},
+		Users: []AlertUserDetails{
+			{
+				Name:     "Alice Smith",
+				Email:    "alice@example.com",
+				Phone:    "555-0100",
+				Language: "English",
+			},
+		},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	_, err = database.Collection("alerts").InsertOne(t.Context(), seededAlert)
+	if err != nil {
+		t.Fatalf("Failed to seed alert: %v", err)
+	}
+
+	router := setupRouter()
+	token := generateTestToken(userIDs[0].Hex())
+
+	// Define a sequence of operations to test create, update (email/phone), and language expansion
+	testSteps := []struct {
+		name          string
+		payload       AlertUserDetails
+		expectedCount int
+		expectedLang  string
+		expectedName  string
+		expectNewLang bool
+	}{
+		{
+			name: "Step 1: Add a new user with Spanish (Triggers translation)",
+			payload: AlertUserDetails{
+				Name:     "Carlos Gomez",
+				Email:    "carlos@example.com",
+				Phone:    "555-0200",
+				Language: "Spanish",
+			},
+			expectedCount: 2,
+			expectedLang:  "Spanish",
+			expectedName:  "Carlos Gomez",
+			expectNewLang: true,
+		},
+		{
+			name: "Step 2: Add a new user with Portuguese (Triggers translation)",
+			payload: AlertUserDetails{
+				Name:     "Beatriz Silva",
+				Email:    "beatriz@example.com",
+				Phone:    "555-0300",
+				Language: "Portuguese",
+			},
+			expectedCount: 3,
+			expectedLang:  "Portuguese",
+			expectedName:  "Beatriz Silva",
+			expectNewLang: true,
+		},
+		{
+			name: "Step 3: Update existing user (Alice) by matching Email (Should update in-place, count stays 3)",
+			payload: AlertUserDetails{
+				Name:     "Alice Updated",
+				Email:    "alice@example.com", // Matches Alice's email
+				Phone:    "555-0100",
+				Language: "English",
+			},
+			expectedCount: 3,
+			expectedLang:  "English",
+			expectedName:  "Alice Updated",
+			expectNewLang: false,
+		},
+		{
+			name: "Step 4: Update existing user (Carlos) by matching Phone with a new email/name (Should update via phone match, count stays 3)",
+			payload: AlertUserDetails{
+				Name:     "Carlos NewEmail",
+				Email:    "carlos.new@example.com", // Changed email
+				Phone:    "555-0200",               // Matches Carlos's phone
+				Language: "Spanish",
+			},
+			expectedCount: 3,
+			expectedLang:  "Spanish",
+			expectedName:  "Carlos NewEmail",
+			expectNewLang: false,
+		},
+		{
+			name: "Step 5: Add user with an already existing language (Spanish) - Should NOT trigger new translation",
+			payload: AlertUserDetails{
+				Name:     "Mateo Ruiz",
+				Email:    "mateo@example.com",
+				Phone:    "555-0400",
+				Language: "Spanish", // Already exists
+			},
+			expectedCount: 4,
+			expectedLang:  "Spanish",
+			expectedName:  "Mateo Ruiz",
+			expectNewLang: false,
+		},
+	}
+
+	for _, step := range testSteps {
+		t.Run(step.name, func(t *testing.T) {
+			jsonBody, _ := json.Marshal(step.payload)
+			req, _ := http.NewRequest("PUT", "/api/yard/"+yardID+"/alert/user", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+			}
+
+			// Fetch updated state from DB
+			var updated AlertDetails
+			err := database.Collection("alerts").FindOne(t.Context(), bson.M{"yard_id": yardID}).Decode(&updated)
+			if err != nil {
+				t.Fatalf("Failed to query database: %v", err)
+			}
+
+			// Validate user count
+			if len(updated.Users) != step.expectedCount {
+				t.Errorf("Expected %d users, got %d", step.expectedCount, len(updated.Users))
+			}
+
+			// Validate that the user was properly inserted or updated in the slice
+			foundTarget := false
+			for _, u := range updated.Users {
+				// Match either by phone or email depending on what was tested
+				if u.Email == step.payload.Email || u.Phone == step.payload.Phone {
+					foundTarget = true
+					if u.Name != step.expectedName {
+						t.Errorf("Expected user name '%s', got '%s'", step.expectedName, u.Name)
+					}
+					if u.Language != step.expectedLang {
+						t.Errorf("Expected language '%s', got '%s'", step.expectedLang, u.Language)
+					}
+				}
+			}
+			if !foundTarget {
+				t.Errorf("Target user payload was not found correctly in database array")
+			}
+		})
+	}
+}
+
+func TestEditUserAlert_TriggersTranslationOnLanguageChange(t *testing.T) {
+	// 1. Setup test environment
+	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 0, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
+
+	yardID := yardIDs[0]
+
+	// 2. Seed initial alert with ONE English user and ONLY an English message
+	seededAlert := AlertDetails{
+		YardID:   yardID,
+		CoolDown: 5,
+		Messages: []AlertMessages{
+			{Language: "English", Message: "Emergency shutdown sequence initiated"},
+		},
+		Users: []AlertUserDetails{
+			{
+				Name:     "John Doe",
+				Email:    "john@example.com",
+				Phone:    "555-9000",
+				Language: "English", // Starts as English
+			},
+		},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	_, err = database.Collection("alerts").InsertOne(t.Context(), seededAlert)
+	if err != nil {
+		t.Fatalf("Failed to seed alert: %v", err)
+	}
+
+	router := setupRouter()
+	token := generateTestToken(userIDs[0].Hex())
+
+	// 3. Update John Doe's language to Portuguese (matching via email)
+	updatePayload := AlertUserDetails{
+		Name:     "John Doe",
+		Email:    "john@example.com", // Matches existing user
+		Phone:    "555-9000",
+		Language: "Portuguese", // Changed to a new language
+	}
+
+	jsonBody, err := json.Marshal(updatePayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal payload: %v", err)
+	}
+
+	req, _ := http.NewRequest("PUT", "/api/yard/"+yardID+"/alert/user", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 on language update, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// 4. Verify database record updated the user's language AND successfully added the Portuguese translation
+	var updatedAlert AlertDetails
+	err = database.Collection("alerts").FindOne(t.Context(), bson.M{"yard_id": yardID}).Decode(&updatedAlert)
+	if err != nil {
+		t.Fatalf("Failed to query updated alert from database: %v", err)
+	}
+
+	// Check that user language changed
+	if updatedAlert.Users[0].Language != "Portuguese" {
+		t.Errorf("Expected user language to be updated to Portuguese, got %s", updatedAlert.Users[0].Language)
+	}
+
+	// Check that a Portuguese message translation was generated and added
+	foundPortugueseTranslation := false
+	for _, msg := range updatedAlert.Messages {
+		if strings.EqualFold(msg.Language, "Portuguese") {
+			foundPortugueseTranslation = true
+			if msg.Message == "" {
+				t.Errorf("Expected translated message content for Portuguese, got empty string")
+			}
+		}
+	}
+
+	if !foundPortugueseTranslation {
+		t.Errorf("Expected changing user language to trigger and append a Portuguese translation to Messages")
 	}
 }
 

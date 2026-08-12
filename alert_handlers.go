@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -49,6 +50,10 @@ func postAlert(c *gin.Context) {
 
 	err = postAlertImpl(c, yardID)
 	if err != nil {
+		if errors.Is(err, ErrDuplicateContact) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update alert details" + err.Error()})
 		return
 	}
@@ -79,6 +84,10 @@ func editUserAlert(c *gin.Context) {
 
 	err := editUserAlertImpl(c, yardID)
 	if err != nil {
+		if errors.Is(err, ErrDuplicateContact) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to edit user alert details:" + err.Error()})
 		return
 	}

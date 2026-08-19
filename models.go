@@ -128,24 +128,26 @@ type AlertMessages struct {
 }
 
 type AlertDetails struct {
-	YardID     string             `json:"yard_id" bson:"yard_id"`
-	Messages   []AlertMessages    `json:"messages" bson:"messages"`
-	LastRun    time.Time          `json:"last_run" bson:"last_run"`
-	CoolDown   time.Duration      `json:"cool_down" bson:"cool_down"`
-	TestEmail  string             `json:"test_email" bson:"test_email"`
-	TestPhone  string             `json:"test_phone" bson:"test_phone"`
-	RunHistory []AlertRunHistory  `json:"run_history" bson:"run_history"`
-	Users      []AlertUserDetails `json:"users" bson:"users"`
-	CreatedAt  time.Time          `json:"created_at" bson:"created_at"`
-	UpdatedAt  time.Time          `json:"updated_at" bson:"updated_at"`
+	YardID       string             `json:"yard_id" bson:"yard_id"`
+	Messages     []AlertMessages    `json:"messages" bson:"messages"`
+	TestMessages []AlertMessages    `json:"test_messages" bson:"test_messages"`
+	LastRun      time.Time          `json:"last_run" bson:"last_run"`
+	CoolDown     time.Duration      `json:"cool_down" bson:"cool_down"`
+	TestEmail    string             `json:"test_email" bson:"test_email"`
+	TestPhone    string             `json:"test_phone" bson:"test_phone"`
+	RunHistory   []AlertRunHistory  `json:"run_history" bson:"run_history"`
+	Users        []AlertUserDetails `json:"users" bson:"users"`
+	CreatedAt    time.Time          `json:"created_at" bson:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at" bson:"updated_at"`
 }
 
 type AlertPostPayload struct {
-	Message   string        `json:"message" bson:"message"`
-	LastRun   int64         `json:"last_run" bson:"last_run"`
-	CoolDown  time.Duration `json:"cool_down" bson:"cool_down"`
-	TestEmail string        `json:"test_email" bson:"test_email"`
-	TestPhone string        `json:"test_phone" bson:"test_phone"`
+	Message     string        `json:"message" bson:"message"`
+	TestMessage string        `json:"test_message" bson:"test_message"`
+	LastRun     int64         `json:"last_run" bson:"last_run"`
+	CoolDown    time.Duration `json:"cool_down" bson:"cool_down"`
+	TestEmail   string        `json:"test_email" bson:"test_email"`
+	TestPhone   string        `json:"test_phone" bson:"test_phone"`
 }
 
 type socialProfile struct {

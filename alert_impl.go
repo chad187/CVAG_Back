@@ -28,16 +28,17 @@ func getAlertImpl(c *gin.Context, yardId string) (alert AlertDetails, err error)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			alert = AlertDetails{
-				YardID:     yardId,
-				Messages:   []AlertMessages{},
-				LastRun:    time.Now().UTC(),
-				CoolDown:   300000000000,
-				TestEmail:  "",
-				TestPhone:  "",
-				RunHistory: []AlertRunHistory{},
-				Users:      []AlertUserDetails{},
-				CreatedAt:  time.Now().UTC(),
-				UpdatedAt:  time.Now().UTC(),
+				YardID:       yardId,
+				Messages:     []AlertMessages{},
+				TestMessages: []AlertMessages{},
+				LastRun:      time.Now().UTC(),
+				CoolDown:     300000000000,
+				TestEmail:    "",
+				TestPhone:    "",
+				RunHistory:   []AlertRunHistory{},
+				Users:        []AlertUserDetails{},
+				CreatedAt:    time.Now().UTC(),
+				UpdatedAt:    time.Now().UTC(),
 			}
 
 			_, err = database.Collection("alerts").InsertOne(c, alert)
@@ -50,10 +51,31 @@ func getAlertImpl(c *gin.Context, yardId string) (alert AlertDetails, err error)
 	return
 }
 
+func resolveAlertMessages(oldMessages []AlertMessages, newText string, users []AlertUserDetails) ([]AlertMessages, error) {
+	// If text hasn't changed and we already have messages, keep them (preserving translations)
+	if len(oldMessages) > 0 && oldMessages[0].Message == newText {
+		return oldMessages, nil
+	}
+
+	// Otherwise, reset with English and re-translate if there are users
+	messages := []AlertMessages{{
+		Language: "English",
+		Message:  newText,
+	}}
+
+	if len(users) > 0 {
+		translated, err := getMessageTranslations(users, newText)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, translated...)
+	}
+
+	return messages, nil
+}
+
 func postAlertImpl(c *gin.Context, yardId string) (err error) {
-
 	var payload AlertPostPayload
-
 	if err = c.ShouldBindJSON(&payload); err != nil {
 		return
 	}
@@ -63,32 +85,27 @@ func postAlertImpl(c *gin.Context, yardId string) (err error) {
 		return
 	}
 
-	// Default to keeping the existing messages (preserving all translations)
+	// Resolve main messages and test messages using the helper
+	messages, err := resolveAlertMessages(oldAlert.Messages, payload.Message, oldAlert.Users)
+	if err != nil {
+		return err
+	}
+
+	// Assuming oldAlert has a TestMessages field of type []AlertMessages
+	testMessages, err := resolveAlertMessages(oldAlert.TestMessages, payload.TestMessage, oldAlert.Users)
+	if err != nil {
+		return err
+	}
+
 	alert := AlertDetails{
-		Messages: oldAlert.Messages,
+		Messages:     messages,
+		TestMessages: testMessages,
+		LastRun:      time.Unix(payload.LastRun, 0).UTC(),
+		CoolDown:     payload.CoolDown,
+		TestEmail:    payload.TestEmail,
+		TestPhone:    payload.TestPhone,
+		UpdatedAt:    time.Now().UTC(),
 	}
-
-	// Only reset and re-translate if the main English message text actually changed
-	if len(oldAlert.Messages) == 0 || oldAlert.Messages[0].Message != payload.Message {
-		alert.Messages = []AlertMessages{{
-			Language: "English",
-			Message:  payload.Message,
-		}}
-
-		if len(oldAlert.Users) > 0 {
-			messages, err := getMessageTranslations(oldAlert.Users, payload.Message)
-			if err != nil {
-				return err
-			}
-			alert.Messages = append(alert.Messages, messages...)
-		}
-	}
-
-	alert.LastRun = time.Unix(payload.LastRun, 0).UTC()
-	alert.CoolDown = payload.CoolDown
-	alert.TestEmail = payload.TestEmail
-	alert.TestPhone = payload.TestPhone
-	alert.UpdatedAt = time.Now().UTC()
 
 	alert.Users = make([]AlertUserDetails, len(oldAlert.Users))
 	copy(alert.Users, oldAlert.Users)
@@ -130,13 +147,14 @@ func postAlertImpl(c *gin.Context, yardId string) (err error) {
 
 	update := bson.M{
 		"$set": bson.M{
-			"messages":   alert.Messages,
-			"last_run":   alert.LastRun,
-			"cool_down":  alert.CoolDown,
-			"test_email": alert.TestEmail,
-			"test_phone": alert.TestPhone,
-			"updated_at": alert.UpdatedAt,
-			"users":      alert.Users,
+			"messages":      alert.Messages,
+			"test_messages": alert.TestMessages,
+			"last_run":      alert.LastRun,
+			"cool_down":     alert.CoolDown,
+			"test_email":    alert.TestEmail,
+			"test_phone":    alert.TestPhone,
+			"updated_at":    alert.UpdatedAt,
+			"users":         alert.Users,
 		},
 		"$setOnInsert": bson.M{
 			"created_at": time.Now().UTC(),
@@ -144,7 +162,6 @@ func postAlertImpl(c *gin.Context, yardId string) (err error) {
 	}
 
 	filter := bson.M{"yard_id": yardId}
-
 	_, err = database.Collection("alerts").UpdateOne(c, filter, update, options.UpdateOne().SetUpsert(true))
 
 	return
@@ -493,12 +510,20 @@ func broadcastAlertImpl(c *gin.Context, yardId string, testing bool) (remaining 
 
 	groups := make(map[string]*langGroup)
 
+	// Choose which message collection to use based on the testing flag
+	targetMessages := alert.Messages
+	defaultMessage := "This is an alert but your specified message is not loading. Please follow proper alert procedures and contact your supervisor for more information."
+
+	if testing {
+		targetMessages = alert.TestMessages
+		defaultMessage = "This is a TEST alert to confirm that the system is working. Please continue working as usual. If you have any questions, please contact your supervisor."
+	}
+
 	// Pre-load available translations into a lookup map
 	messageMap := make(map[string]string)
-	defaultMessage := "This is an alert but your specified message is not loading. Please follow proper alert procedures and contact your supervisor for more information."
-	if len(alert.Messages) > 0 {
-		defaultMessage = alert.Messages[0].Message
-		for _, m := range alert.Messages {
+	if len(targetMessages) > 0 {
+		defaultMessage = targetMessages[0].Message
+		for _, m := range targetMessages {
 			messageMap[strings.ToLower(strings.TrimSpace(m.Language))] = m.Message
 		}
 	}
@@ -507,25 +532,17 @@ func broadcastAlertImpl(c *gin.Context, yardId string, testing bool) (remaining 
 		email := strings.TrimSpace(user.Email)
 		phone := strings.TrimSpace(user.Phone)
 
-		var langKey, msgText string
+		// Use user's actual specified language and look up the appropriate message (Test or Real)
+		lang := strings.TrimSpace(user.Language)
+		if lang == "" {
+			lang = "English"
+		}
+		langKey := strings.ToLower(lang)
 
-		if testing {
-			// Force English and default message for all users during testing
-			langKey = "english"
-			msgText = "This is a TEST alert to confirm that the system is working. Please continue working as usual. If you have any questions, please contact your supervisor."
-		} else {
-			// Use user's actual specified language and localized message
-			lang := strings.TrimSpace(user.Language)
-			if lang == "" {
-				lang = "English"
-			}
-			langKey = strings.ToLower(lang)
-			var found bool
-			msgText, found = messageMap[langKey]
-			if !found {
-				fmt.Printf("[DEBUG] No translation found for langKey=%q, falling back to English default\n", langKey)
-				msgText = defaultMessage
-			}
+		msgText, found := messageMap[langKey]
+		if !found {
+			fmt.Printf("[DEBUG] No translation found for langKey=%q, falling back to default\n", langKey)
+			msgText = defaultMessage
 		}
 
 		group, exists := groups[langKey]

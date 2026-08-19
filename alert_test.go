@@ -13,6 +13,100 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
+func TestPostAlertDetails_WithTestMessageTranslation(t *testing.T) {
+	// 1. Setup test environment
+	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 0, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
+
+	yardID := yardIDs[0]
+
+	// 2. Seed an existing alert with initial messages and a user target language (Spanish)
+	seededAlert := AlertDetails{
+		YardID:   yardID,
+		CoolDown: 5,
+		Messages: []AlertMessages{
+			{Language: "English", Message: "live message old"},
+		},
+		TestMessages: []AlertMessages{
+			{Language: "English", Message: "test message old"},
+		},
+		Users: []AlertUserDetails{
+			{Language: "Spanish", Name: "Usuario de Prueba", Email: "test@example.com", Phone: "555-0100"},
+		},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	_, err = database.Collection("alerts").InsertOne(t.Context(), seededAlert)
+	if err != nil {
+		t.Fatalf("Failed to seed alert: %v", err)
+	}
+
+	// 3. Initialize router and generate test token
+	router := setupRouter()
+	token := generateTestToken(userIDs[0].Hex())
+
+	// 4. Create the post payload with both Message and TestMessage updates
+	payload := AlertPostPayload{
+		Message:     "live message new",
+		TestMessage: "test message new",
+		CoolDown:    10,
+		TestEmail:   "alerts@example.com",
+		TestPhone:   "555-0199",
+		LastRun:     time.Now().UTC().Unix(),
+	}
+
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Failed to marshal payload: %v", err)
+	}
+
+	// 5. Execute the POST Request to update the alert and trigger translation for both
+	req, _ := http.NewRequest("POST", "/api/yard/"+yardID+"/alert", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 on POST, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// 6. Verify via an HTTP GET request
+	getReq, _ := http.NewRequest("GET", "/api/yard/"+yardID+"/alert", nil)
+	getReq.Header.Set("Authorization", "Bearer "+token)
+
+	getW := httptest.NewRecorder()
+	router.ServeHTTP(getW, getReq)
+
+	if getW.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 on GET, got %d. Body: %s", getW.Code, getW.Body.String())
+	}
+
+	var fetchedAlert AlertDetails
+	if err := json.Unmarshal(getW.Body.Bytes(), &fetchedAlert); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// 7. Assertions for Test Messages and Live Messages
+	if len(fetchedAlert.Messages) < 1 || fetchedAlert.Messages[0].Message != "live message new" {
+		t.Errorf("Expected primary message to be 'live message new', got %v", fetchedAlert.Messages)
+	}
+
+	// Ensure TestMessage updated to the new string and that translation triggered for the Spanish user
+	if len(fetchedAlert.TestMessages) < 1 || fetchedAlert.TestMessages[0].Message != "test message new" {
+		t.Errorf("Expected test message to be 'test message new', got %v", fetchedAlert.TestMessages)
+	}
+
+	if len(fetchedAlert.TestMessages) < 2 {
+		t.Errorf("Expected test messages to include translation for Spanish user, got %d messages", len(fetchedAlert.TestMessages))
+	} else if fetchedAlert.TestMessages[1].Language != "Spanish" {
+		t.Errorf("Expected second test message language to be Spanish, got %s", fetchedAlert.TestMessages[1].Language)
+	}
+}
+
 func TestGetAlertDetails_Existing(t *testing.T) {
 	// 1. Setup test environment (1 user, 1 company, 1 yard)
 	_, userIDs, _, yardIDs, _, err := setupTest(t, 1, 1, 1, 0, time.Now().UTC())
@@ -133,6 +227,9 @@ func TestPostAlertDetails_WithTranslation(t *testing.T) {
 		Messages: []AlertMessages{
 			{Language: "English", Message: "old"},
 		},
+		TestMessages: []AlertMessages{
+			{Language: "English", Message: "test old"},
+		},
 		Users: []AlertUserDetails{
 			{Language: "Spanish"},
 		},
@@ -150,11 +247,12 @@ func TestPostAlertDetails_WithTranslation(t *testing.T) {
 
 	// 4. Create the post payload with a "new" message
 	payload := AlertPostPayload{
-		Message:   "new",
-		CoolDown:  10,
-		TestEmail: "alerts@example.com",
-		TestPhone: "555-0199",
-		LastRun:   time.Now().UTC().Unix(),
+		Message:     "new",
+		TestMessage: "test new",
+		CoolDown:    10,
+		TestEmail:   "alerts@example.com",
+		TestPhone:   "555-0199",
+		LastRun:     time.Now().UTC().Unix(),
 	}
 
 	jsonBody, err := json.Marshal(payload)
@@ -701,6 +799,9 @@ func TestPostAlert_ExistingTestPhoneUpdate(t *testing.T) {
 		Messages: []AlertMessages{
 			{Language: "English", Message: "Initial plant message"},
 		},
+		TestMessages: []AlertMessages{
+			{Language: "English", Message: "Test plant message"},
+		},
 		Users: []AlertUserDetails{
 			{
 				Name:     "Original Name",
@@ -722,11 +823,12 @@ func TestPostAlert_ExistingTestPhoneUpdate(t *testing.T) {
 
 	// 3. Construct the payload using the matching phone number
 	payload := AlertPostPayload{
-		Message:   "Initial plant message", // Same message so it doesn't trigger translation logic
-		CoolDown:  10,
-		TestEmail: "updated-test@example.com",
-		TestPhone: "555-8888", // Matches existing user's phone
-		LastRun:   time.Now().Unix(),
+		Message:     "Initial plant message", // Same message so it doesn't trigger translation logic
+		TestMessage: "Test plant message",    // Same test message
+		CoolDown:    10,
+		TestEmail:   "updated-test@example.com",
+		TestPhone:   "555-8888", // Matches existing user's phone
+		LastRun:     time.Now().Unix(),
 	}
 
 	jsonBody, err := json.Marshal(payload)
